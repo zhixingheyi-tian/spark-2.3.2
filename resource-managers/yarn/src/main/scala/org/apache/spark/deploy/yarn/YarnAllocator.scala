@@ -160,6 +160,12 @@ private[yarn] class YarnAllocator(
   private[yarn] val containerPlacementStrategy =
     new LocalityPreferredContainerPlacementStrategy(sparkConf, conf, resource, resolver)
 
+  // The total number of numa node
+  private[yarn] val totalNumaNumber = 2
+  // Mapping from host to executor counter, we use the counter with a round-robin mode to
+  // determine the numa node id that the executor should bind.
+  private[yarn] val hostToNuma = new mutable.HashMap[String, Int]()
+
   /**
    * Use a different clock for YarnAllocator. This is mainly used for testing.
    */
@@ -495,11 +501,19 @@ private[yarn] class YarnAllocator(
     for (container <- containersToUse) {
       executorIdCounter += 1
       val executorHostname = container.getNodeId.getHost
+      // Setting the numa id that the executor should binding. Just round robin from 0 to
+      // totalNumaNumber for each host.
+      // TODO: This is very ugly, however this is should be processed in resource
+      // manager(such as yarn).
+      val preSize = hostToNuma.getOrElseUpdate(executorHostname, 0)
+      val numaNodeId = (preSize % totalNumaNumber).toString
+      hostToNuma.put(executorHostname, preSize + 1)
+
       val containerId = container.getId
       val executorId = executorIdCounter.toString
       assert(container.getResource.getMemory >= resource.getMemory)
       logInfo(s"Launching container $containerId on host $executorHostname " +
-        s"for executor with ID $executorId")
+        s"for executor with ID $executorId with numa ID $numaNodeId")
 
       def updateInternalState(): Unit = synchronized {
         runningExecutors.add(executorId)
@@ -525,6 +539,7 @@ private[yarn] class YarnAllocator(
                   sparkConf,
                   driverUrl,
                   executorId,
+                  Some(numaNodeId),
                   executorHostname,
                   executorMemory,
                   executorCores,
