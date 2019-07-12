@@ -201,7 +201,7 @@ private[yarn] class ExecutorRunnable(
 
     val numaEnabled = sparkConf.get(SPARK_YARN_NUMA_ENABLED)
 
-    logInfo(s"[YUQIANG] numaEnabled $numaEnabled executorId $executorId")
+    logInfo(s"[NUMACHECK] numaEnabled $numaEnabled executorId $executorId")
     // Don't need numa binding for driver.
     val (numaCtlCommand, numaNodeOpts) = if (numaEnabled && executorId != "<executorId>"
       && numaNodeId.nonEmpty) {
@@ -212,7 +212,7 @@ private[yarn] class ExecutorRunnable(
       ("", Nil)
     }
 
-    logInfo(s"[YUQIANG] numactl command $numaCtlCommand")
+    logInfo(s"[NUMACHECK] numactl command $numaCtlCommand")
     YarnSparkHadoopUtil.addOutOfMemoryErrorArgument(javaOpts)
     val commands = prefixEnv ++
       Seq(numaCtlCommand  + Environment.JAVA_HOME.$$() + "/bin/java", "-server") ++
@@ -229,7 +229,7 @@ private[yarn] class ExecutorRunnable(
         s"1>${ApplicationConstants.LOG_DIR_EXPANSION_VAR}/stdout",
         s"2>${ApplicationConstants.LOG_DIR_EXPANSION_VAR}/stderr")
 
-    logInfo(s"[YUQIANG] container command $commands")
+    logInfo(s"[NUMACHECK] container command $commands")
     // TODO: it would be nicer to just make sure there are no null commands here
     commands.map(s => if (s == null) "null" else s).toList
   }

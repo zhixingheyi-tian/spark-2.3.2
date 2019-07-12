@@ -296,7 +296,7 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
       printUsageAndExit()
     }
 
-    logInfo(s"[YUQIANG] numaNodeId $numaNodeId")
+    logInfo(s"[NUMACHECK] numaNodeId $numaNodeId")
     run(driverUrl, executorId, numaNodeId, hostname,  cores, appId, workerUrl, userClassPath)
     System.exit(0)
   }

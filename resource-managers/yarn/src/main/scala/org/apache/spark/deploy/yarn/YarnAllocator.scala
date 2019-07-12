@@ -161,10 +161,11 @@ private[yarn] class YarnAllocator(
     new LocalityPreferredContainerPlacementStrategy(sparkConf, conf, resource, resolver)
 
   // The total number of numa node
-  private[yarn] val totalNumaNumber = 2
-  // Mapping from host to executor counter, we use the counter with a round-robin mode to
-  // determine the numa node id that the executor should bind.
-  private[yarn] val hostToNuma = new mutable.HashMap[String, Int]()
+  private[yarn] val totalNumaNumber = sparkConf.get(SPARK_YARN_NUMA_NUMBER)
+  // Mapping from host to executor counter
+  private[yarn] case class NumaInfo(cotainer2numa: mutable.HashMap[String, Int], numaUsed: Array[Int])
+
+  private[yarn] val hostToNumaInfo = new mutable.HashMap[String, NumaInfo]()
 
   /**
    * Use a different clock for YarnAllocator. This is mainly used for testing.
@@ -501,13 +502,19 @@ private[yarn] class YarnAllocator(
     for (container <- containersToUse) {
       executorIdCounter += 1
       val executorHostname = container.getNodeId.getHost
-      // Setting the numa id that the executor should binding. Just round robin from 0 to
-      // totalNumaNumber for each host.
-      // TODO: This is very ugly, however this is should be processed in resource
-      // manager(such as yarn).
-      val preSize = hostToNuma.getOrElseUpdate(executorHostname, 0)
-      val numaNodeId = (preSize % totalNumaNumber).toString
-      hostToNuma.put(executorHostname, preSize + 1)
+      // Setting the numa id that the executor should binding.
+      // new numaid binding method
+      val numaInfo = hostToNumaInfo.getOrElseUpdate(executorHostname,
+        NumaInfo(new mutable.HashMap[String, Int], new Array[Int](totalNumaNumber)))
+      val minUsed = numaInfo.numaUsed.min
+      val newNumaNodeId = numaInfo.numaUsed.indexOf(minUsed)
+      numaInfo.cotainer2numa.put(container.getId.toString, newNumaNodeId)
+      numaInfo.numaUsed(newNumaNodeId) += 1
+
+      val numaNodeId = newNumaNodeId.toString
+      logInfo(s"numaNodeId: $numaNodeId on host $executorHostname," +
+        "container: " + container.getId.toString +
+        ", minUsed: " + minUsed)
 
       val containerId = container.getId
       val executorId = executorIdCounter.toString
@@ -598,6 +605,17 @@ private[yarn] class YarnAllocator(
         // there are some exit status' we shouldn't necessarily count against us, but for
         // now I think its ok as none of the containers are expected to exit.
         val exitStatus = completedContainer.getExitStatus
+
+        var numaNodeId = -1
+        val hostName = hostOpt.getOrElse("nohost")
+        val numaInfoOp = hostToNumaInfo.get(hostName)
+        numaInfoOp match {
+          case Some(numaInfo) =>
+            numaNodeId = numaInfo.cotainer2numa.get(containerId.toString).getOrElse(-1)
+            if(-1 != numaNodeId) numaInfo.numaUsed(numaNodeId) -= 1
+          case _ => numaNodeId = -1
+        }
+
         val (exitCausedByApp, containerExitReason) = exitStatus match {
           case ContainerExitStatus.SUCCESS =>
             (false, s"Executor for container $containerId exited because of a YARN event (e.g., " +
@@ -621,7 +639,9 @@ private[yarn] class YarnAllocator(
             failedExecutorsTimeStamps.enqueue(clock.getTimeMillis())
             (true, "Container marked as failed: " + containerId + onHostStr +
               ". Exit status: " + completedContainer.getExitStatus +
-              ". Diagnostics: " + completedContainer.getDiagnostics)
+              ". Diagnostics: " + completedContainer.getDiagnostics +
+              ". numaNodeId: " + numaNodeId +
+              ". hostName: " + hostName)
 
         }
         if (exitCausedByApp) {
