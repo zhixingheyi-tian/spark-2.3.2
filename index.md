@@ -4,7 +4,7 @@ Hello, You can use the [editor on GitHub](https://github.com/zhixingheyi-tian/sp
 
 Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://jekyllrb.com/) to rebuild the pages in your site, from the content in your Markdown files.
 Also refer to [README](./README.md)
-Also refer to [GUIDE](./Guide.md)
+Also refer to [GUIDE](./Guide.html)
 
 ### Markdown
 
